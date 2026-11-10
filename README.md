@@ -37,6 +37,10 @@ flowchart LR
 
 关键点在于**服务器上永远不编译**：Maven/Vite 的构建峰值会吃掉 1GB+ 内存，2G 机器必然 OOM。产物在 GitHub Runner 上构建好，服务器只做 COPY 级镜像组装。
 
+跑起来就是这样一个绿色的 run，从 push 到上线约 2 分钟（`build-and-deploy` 本身 1 分 58 秒）：
+
+![GitHub Actions 运行成功](images/actions-run.png)
+
 ## 包含什么
 
 | Skill | 解决什么问题 | 关键产出 |
@@ -103,6 +107,8 @@ cp -r aliyun-ecs-access gh-actions-aliyun-acr-cicd thin-image-docker-deploy ~/.c
 
 [ECS 实例列表控制台](https://ecs.console.aliyun.com/)（注意先在左上角把地域切成你服务器所在的地域）→ 找到实例 → 复制「公网 IP」或「弹性 IP」那一列。
 
+![在 ECS 实例详情里找公网 IP](images/ecs-instance-ip.png)
+
 不方便开控制台时，登进服务器执行：
 
 ```bash
@@ -160,6 +166,8 @@ ACR = 容器镜像服务，个人版免费。它的作用是当「中转站」�
 
 [容器镜像服务控制台](https://cr.console.aliyun.com/)（**先在左上角切到你服务器所在地域**）→ 左侧「实例列表」→ 首次进入会提示开通「个人版实例」，**地域必须选成和你 ECS 同一个**（例如都在 `cn-beijing`）。开通后得到形如 `crpi-xxxxxxxx.cn-beijing.personal.cr.aliyuncs.com` 的域名，这就是 `ACR_REGISTRY`。
 
+![ACR 个人版实例概览：公网/专有网络访问域名](images/acr-registry-domain.png)
+
 > 为什么强调同地域：`deploy.yml` 会读服务器元数据判断地域，同地域时自动把域名换成 `-vpc.` 版本，走内网拉取（免流量、秒级）；跨地域只能走公网，慢且计费。
 
 **② 创建命名空间（`ACR_NAMESPACE`）**
@@ -173,6 +181,8 @@ ACR = 容器镜像服务，个人版免费。它的作用是当「中转站」�
 **④ 设置固定密码（`ACR_DOCKER_USERNAME` / `ACR_DOCKER_PASSWORD`）**
 
 个人版实例详情页 → 左侧「仓库管理 > 访问凭证」→ 在「访问凭证」页点「设置固定密码」。
+
+![访问凭证页：设置固定密码 + docker login 命令示例](images/acr-credentials.png)
 
 - 用户名：**阿里云账号全名**（形如 `your_account@example.com`，或 RAM 子账号名），不是昵称
 - 密码：刚才设置的固定密码。**这是独立于阿里云登录密码的另一套凭证**，只对镜像仓库有效
@@ -207,6 +217,8 @@ gh secret set ACR_DOCKER_PASSWORD --body "你设置的固定密码"
 gh secret list          # 应该正好 8 条
 ```
 
+![GitHub 仓库 Secrets 列表（值不可见，天然安全）](images/gh-secrets.png)
+
 漏了也不至于炸：`deploy.yml` 里有一个 `guard` 步骤，Secrets 没配齐时直接跳过部署并打印提示，仓库不会一上来就飘红。
 
 ### 可选参数
@@ -222,19 +234,21 @@ gh secret list          # 应该正好 8 条
 
 ---
 
-## 截图指引
+## 关于截图
 
-控制台页面会随版本改版，所以这里不放容易过期的截图，而是给出**该看哪一块**。如果你希望补图，按下面清单截图后放进 `docs/images/`，命名保持一致即可直接替换：
+文中 5 张图都取自真实的个人版实例/仓库，**所有敏感信息（账号、公网 IP、实例 ID、ACR 域名、仓库名、头像）已做像素化处理**，原图未入库。
 
-| 文件名 | 截什么 | 怎么去 |
-|---|---|---|
-| `ecs-instance-ip.png` | 实例列表里「公网 IP」那一列 | ECS 控制台 → 实例 |
-| `acr-registry-domain.png` | 个人版实例概览里的访问域名 | ACR 控制台 → 个人版实例 |
-| `acr-credentials.png` | 「访问凭证」页的固定密码区域（**打码账号名**） | ACR 控制台 → 访问凭证 |
-| `gh-secrets.png` | 仓库 Secrets 列表（**值是不可见的，天然安全**） | GitHub 仓库 → Settings → Secrets |
-| `actions-run.png` | 一次成功的 Actions 运行记录 | GitHub 仓库 → Actions |
+控制台页面会随版本改版，图里的菜单名与位置可能变化；文字部分写的是「点哪一层菜单」，以文字为准。要更新某张图，同名替换 `images/` 下的文件即可：
 
-> 截图前请确认：不要露账号邮箱、不要露完整 IP、不要露控制台右上角的账号信息。
+| 文件名 | 截什么 |
+|---|---|
+| `ecs-instance-ip.png` | ECS 实例详情里的公网 IP |
+| `acr-registry-domain.png` | ACR 个人版实例概览的公网/专有网络域名 |
+| `acr-credentials.png` | 访问凭证页（固定密码 + docker login 示例） |
+| `gh-secrets.png` | 仓库 Secrets 列表 |
+| `actions-run.png` | 一次成功的 Actions 运行记录 |
+
+> 换图前请确认：不要露账号邮箱、不要露完整 IP、不要露控制台右上角账号信息、**裁掉浏览器书签栏**。
 
 ## 安全说明
 

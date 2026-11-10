@@ -12,3 +12,6 @@ Thumbs.db
 *.pem
 id_rsa*
 .env
+
+# 未打码的截图原图，绝不入库
+images/raw/
