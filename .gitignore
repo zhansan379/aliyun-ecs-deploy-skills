@@ -1,0 +1,14 @@
+# 本地临时产物 / 部署 staging
+deploy-pkg/
+*.log
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 凭据：万一有人把真实值填进模板
+*.pem
+id_rsa*
+.env

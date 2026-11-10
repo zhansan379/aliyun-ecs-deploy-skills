@@ -1,0 +1,6 @@
+# shell 脚本与容器文件必须保持 LF，否则在 Linux 上报 "bad interpreter" / "\r: command not found"
+*.sh            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+Dockerfile*     text eol=lf
+*.md            text eol=lf

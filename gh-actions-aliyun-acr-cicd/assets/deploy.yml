@@ -1,0 +1,137 @@
+# 实战验证过的 GitHub Actions + 阿里云 ACR 部署工作流模板。
+# 适配 Monorepo（backend/ + frontend/ + 根目录 Dockerfile.artifact/docker-compose.prod.yml）。
+# 其他项目按注释中的标记位调整构建命令与产物路径即可。
+name: deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  REMOTE_DIR: /opt/myapp          # [调整] 服务器部署目录
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      # 镜像全名：<registry>/<namespace>/<repo>
+      ACR_IMAGE: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/myapp   # [调整] 仓库名
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false   # 连续 push 排队串行，避免并发写服务器
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查是否已配置部署 Secrets
+        id: guard
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$ACR_NAMESPACE" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "未配置 Secrets，本次跳过部署（配置后 push 即自动部署）"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # [调整] 以下两个 setup 与两个编译步骤按项目技术栈增删
+      - name: 构建 jar
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: 构建 dist
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 编译后端
+        if: steps.guard.outputs.skip != 'true'
+        working-directory: backend          # Monorepo 必写，否则 "no POM"
+        run: |
+          mvn -q -B -DskipTests package
+          # [调整] 按项目实际产物名改；排除 sources/javadoc 包，避免通配符匹配多个
+          cp "$(find target -maxdepth 1 -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' | head -1)" app.jar
+
+      - name: 构建前端
+        if: steps.guard.outputs.skip != 'true'
+        working-directory: frontend
+        run: |
+          npm ci --no-fund --no-audit
+          npm run build
+
+      - name: 组装镜像并推送 ACR
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_DOCKER_USERNAME: ${{ secrets.ACR_DOCKER_USERNAME }}
+          ACR_DOCKER_PASSWORD: ${{ secrets.ACR_DOCKER_PASSWORD }}
+        run: |
+          # 产物 staging：app 产物 + 静态资源 + 薄运行时 Dockerfile
+          # [调整] 按项目产物命名；注意 -f 必须显式指向 Dockerfile.artifact
+          STAGE=$(mktemp -d)
+          cp backend/app.jar "$STAGE/app.jar"
+          cp -r frontend/dist "$STAGE/static"
+          cp Dockerfile.artifact "$STAGE/"
+          docker build -t "$ACR_IMAGE:app" -t "$ACR_IMAGE:app-${GITHUB_SHA::8}" -f "$STAGE/Dockerfile.artifact" "$STAGE"
+          # 写凭证用 env 变量，不用 ${{ secrets }} 直接内插命令行
+          echo "$ACR_DOCKER_PASSWORD" | docker login "$ACR_REGISTRY" --username "$ACR_DOCKER_USERNAME" --password-stdin
+          # sha tag 用于回滚；第二个 tag 复用已上传层，推送成本极低
+          docker push "$ACR_IMAGE:app" && docker push "$ACR_IMAGE:app-${GITHUB_SHA::8}"
+
+      - name: 写入部署私钥
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: 服务器拉取镜像并部署
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+        run: |
+          run_ssh() {
+            ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o BatchMode=yes \
+                -o StrictHostKeyChecking=accept-new \
+                "$SSH_USER@$SSH_HOST" "$@"
+          }
+          # ECS 与 ACR 同地域时走 VPC 内网域名拉取（免流量、秒级），否则公网域名
+          REGION=$(run_ssh "curl -s -m 3 http://100.100.100.200/latest/meta-data/region-id || echo unknown")
+          PULL_REG="$ACR_REGISTRY"
+          if [ "$REGION" = "cn-beijing" ]; then
+            PULL_REG="${ACR_REGISTRY/.cn-beijing.personal.cr/-vpc.cn-beijing.personal.cr}"   # [调整] 地域串
+          fi
+          echo "拉取域名: $PULL_REG (ECS 地域: $REGION)"
+          # compose 文件随仓库同步到服务器，保证服务定义与代码一致
+          cat docker-compose.prod.yml | run_ssh "cat > $REMOTE_DIR/docker-compose.prod.yml"
+          run_ssh "
+            set -e
+            docker pull $PULL_REG/$ACR_NAMESPACE/myapp:app   # [调整] 镜像仓库名，与上面 ACR_IMAGE 保持一致
+            docker tag  $PULL_REG/$ACR_NAMESPACE/myapp:app myapp:latest
+            cd $REMOTE_DIR && docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          "
+          # 健康检查双探：API + 首页（单容器托管静态时只测 API 测不出前端问题）
+          for i in $(seq 1 60); do
+            if run_ssh "curl -fsS http://localhost:8080/api/health >/dev/null 2>&1 && curl -fsS http://localhost:8080/ >/dev/null"; then
+              echo "部署成功: http://$SSH_HOST:8080"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "健康检查超时，请上服务器查看: docker compose -f $REMOTE_DIR/docker-compose.prod.yml logs" >&2
+          exit 1

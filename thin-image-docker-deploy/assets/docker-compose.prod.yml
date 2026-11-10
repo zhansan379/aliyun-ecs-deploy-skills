@@ -1,0 +1,27 @@
+# 生产部署 compose（产物模式）：镜像由 CI 或 deploy.sh 推送到服务器，
+# 服务器上只 docker pull/load + up，不做任何编译。
+# IMAGE_NAME 与 deploy.sh 的 IMAGE_NAME 环境变量保持一致。
+services:
+  app:
+    image: myapp:latest
+    restart: unless-stopped
+    volumes:
+      # 有状态数据放命名卷，重建容器不丢
+      - app-data:/data/upload
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # bash /dev/tcp 探活：不依赖镜像里有没有 curl/wget（JRE 镜像两者皆无）
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          # 与 JAVA_OPTS 的堆上限匹配 + ~256M 非堆余量，保护同机其他业务
+          memory: 512M
+
+volumes:
+  app-data:

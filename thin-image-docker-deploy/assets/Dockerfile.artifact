@@ -1,0 +1,15 @@
+# 薄运行时镜像模板（产物模式）
+# 上下文布局：./app.jar（应用产物）、./static/（前端 dist，可省略）、本文件
+# 服务器只做 COPY 级组装，秒级完成、不编译，适合小内存服务器。
+FROM eclipse-temurin:17-jre
+WORKDIR /app
+COPY app.jar app.jar
+COPY static ./static
+# UPLOAD_DIR / STATIC_DIR 由应用读取（Spring Boot 用占位符 ${UPLOAD_DIR:} 映射，
+# 不要依赖 APP_UPLOAD_DIR 形式的 relaxed binding，Windows 盘符/嵌套属性会踩坑）
+ENV UPLOAD_DIR=/data/upload \
+    STATIC_DIR=/app/static \
+    JAVA_OPTS="-Xms64m -Xmx256m"
+VOLUME ["/data/upload"]
+EXPOSE 8080
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
