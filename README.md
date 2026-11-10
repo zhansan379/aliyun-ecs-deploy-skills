@@ -2,6 +2,8 @@
 
 > **一句话**：这是一份写给 AI 编程助手（Claude Code / OpenCode 等）看的「说明书」——让它能照着把你本地的项目，一路部署到国内那台小内存云服务器上，并且做到 push 代码就自动上线。
 
+> 懒得读文档？直接跳到 [一键让 AI 带你部署](#一键让-ai-带你部署复制下面整段)，复制那段提示词即可。
+
 三个 [Agent Skills](https://code.claude.com/docs/en/skills)，把「国内云服务器怎么把项目部署上线」这件事从反复踩坑变成固定流程。
 
 面向的场景：**一台 2G 内存的国内 ECS、80 端口已被占用、跨境网络很慢**——这是绝大多数个人项目和中小企业项目的真实起点。
@@ -40,6 +42,59 @@ flowchart LR
 跑起来就是这样一个绿色的 run，从 push 到上线约 2 分钟（`build-and-deploy` 本身 1 分 58 秒）：
 
 ![GitHub Actions 运行成功](images/actions-run.png)
+
+## 一键让 AI 带你部署（复制下面整段）
+
+不想逐字读文档的话，把下面这段原样粘给 Claude Code / OpenCode / Cursor 等能读文件、能跑命令的 AI，它会先把这个技能包装到本机，然后一步一步问你的情况、带你走完全流程。
+
+```text
+你是我的部署助手。请按下面流程，一步一步带我把自己的项目部署到阿里云 ECS 上。
+每一步只做一件事，做完先把结果讲给我，等我确认再继续。
+
+【第 1 步 · 安装技能包】
+把 https://github.com/zhansan379/aliyun-ecs-deploy-skills 装到本机：
+  git clone --depth 1 https://github.com/zhansan379/aliyun-ecs-deploy-skills /tmp/aliyun-deploy-skills
+  bash /tmp/aliyun-deploy-skills/install.sh
+装完确认 ~/.claude/skills 或 ~/.agents/skills 下出现 aliyun-ecs-access、
+gh-actions-aliyun-acr-cicd、thin-image-docker-deploy 三个目录，
+然后完整读一遍这三个 SKILL.md 再动手。
+
+【第 2 步 · 摸清现状】
+一次性问我这几个问题（不要一个个挤牙膏）：
+  1) 服务器配置：内存多大、是否已装 Docker、有没有 swap
+  2) 我的项目技术栈与目录结构（Spring Boot / Vue / Node / Monorepo？）
+  3) 服务器上有没有已有业务占着 80、8080 等端口
+问完先用 aliyun-ecs-access 的巡检脚本跑一遍，把内存水位、已有容器、端口占用讲给我听，
+并明确告诉我这台机器该不该在服务器上编译。
+
+【第 3 步 · SSH 免密】
+带我生成专用部署密钥（ed25519，不复用日常 id_rsa）、把公钥装到服务器，
+最后用 ssh -i <key> -o BatchMode=yes <user>@<ip> "echo OK" 验证通过。
+注意：不要让我把私钥内容贴进对话。
+
+【第 4 步 · 准备 8 个参数】
+按 README「需要你准备哪些参数」逐条带我取：
+  SSH_HOST / SSH_USER / SSH_PORT / SSH_PRIVATE_KEY
+  ACR_REGISTRY / ACR_NAMESPACE / ACR_DOCKER_USERNAME / ACR_DOCKER_PASSWORD
+每拿到一个就说明它来自控制台哪一页、后面填到哪里。
+我如果贴出敏感值，请提醒我撤回并改用本地文件方式传。
+
+【第 5 步 · 配好 CI/CD】
+用 gh-actions-aliyun-acr-cicd 的模板生成 .github/workflows/deploy.yml，
+按我的项目改掉所有 [调整] 处（产物名、镜像仓库名、健康检查路径、ACR 地域串），
+再用 gh secret set 把 8 个值写进仓库 Secrets。
+
+【第 6 步 · 首次部署与验收】
+push 触发部署，失败就用 gh run view <id> --log-failed 看日志并直接给出修法；
+成功后登录服务器做双探测（API + 首页），
+最后告诉我安全组该放行哪些端口、以及回滚该怎么做。
+
+【硬性约束】
+- 服务器上永远不编译，走 thin-image-docker-deploy 的产物模式
+- 不重启 dockerd、不占用别人已在监听的端口
+- 任何要提交进仓库的文件都不能含真实 IP / 私钥 / 账号 / 实例 ID
+- 每步结束用一句话总结：现在状态 / 下一步做什么 / 需要我提供什么
+```
 
 ## 包含什么
 
@@ -231,24 +286,6 @@ gh secret list          # 应该正好 8 条
 | `STAGE_DIR` | `./deploy-pkg` | 本地 staging 目录（`deploy.sh` 用） |
 | `DEPLOY_KEY` | `~/.ssh/deploy` | 本地部署私钥路径 |
 | `IMAGE_NAME` | `myapp` | 本地镜像名，要和 compose 里的 `image:` 一致 |
-
----
-
-## 关于截图
-
-文中 5 张图都取自真实的个人版实例/仓库，**所有敏感信息（账号、公网 IP、实例 ID、ACR 域名、仓库名、头像）已做像素化处理**，原图未入库。
-
-控制台页面会随版本改版，图里的菜单名与位置可能变化；文字部分写的是「点哪一层菜单」，以文字为准。要更新某张图，同名替换 `images/` 下的文件即可：
-
-| 文件名 | 截什么 |
-|---|---|
-| `ecs-instance-ip.png` | ECS 实例详情里的公网 IP |
-| `acr-registry-domain.png` | ACR 个人版实例概览的公网/专有网络域名 |
-| `acr-credentials.png` | 访问凭证页（固定密码 + docker login 示例） |
-| `gh-secrets.png` | 仓库 Secrets 列表 |
-| `actions-run.png` | 一次成功的 Actions 运行记录 |
-
-> 换图前请确认：不要露账号邮箱、不要露完整 IP、不要露控制台右上角账号信息、**裁掉浏览器书签栏**。
 
 ## 安全说明
 
