@@ -55,7 +55,7 @@ flowchart LR
 
 | 指标 | 结果 |
 |---|---|
-| GitHub Runner 构建 → 推 ACR → ECS 内网拉取 → 重启 | **约 3 分钟** |
+| GitHub Runner 构建 → 推 ACR → ECS 内网拉取 → 重启 | **约 2–3 分钟**（下方截图这次是 2m03s） |
 | 跨境 SSH 直传产物 | **约 40 KB/s**，130MB 要 25 分钟 |
 | 服务器侧 `mvn package` | 峰值 >1GB，2G 机器 swap 占满后必然 OOM |
 | 产物模式镜像组装（纯 COPY） | 秒级，几乎不占内存 |
