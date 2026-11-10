@@ -101,7 +101,7 @@ cp -r aliyun-ecs-access gh-actions-aliyun-acr-cicd thin-image-docker-deploy ~/.c
 
 **① 拿到公网 IP（`SSH_HOST`）**
 
-[ECS 实例列表控制台](https://ecs.console.aliyun.com/server/region/cn-beijing)（注意先在左上角把地域切成你服务器所在的地域）→ 找到实例 → 复制「公网 IP」或「弹性 IP」那一列。
+[ECS 实例列表控制台](https://ecs.console.aliyun.com/)（注意先在左上角把地域切成你服务器所在的地域）→ 找到实例 → 复制「公网 IP」或「弹性 IP」那一列。
 
 不方便开控制台时，登进服务器执行：
 
@@ -158,13 +158,13 @@ ACR = 容器镜像服务，个人版免费。它的作用是当「中转站」�
 
 **① 进控制台建个人版实例**
 
-[容器镜像服务控制台](https://cr.console.aliyun.com/cn-beijing/instances) → 首次进入会提示开通「个人版实例」，**地域必须选成和你 ECS 同一个**（例如都在 `cn-beijing`）。开通后得到形如 `crpi-xxxxxxxx.cn-beijing.personal.cr.aliyuncs.com` 的域名，这就是 `ACR_REGISTRY`。
+[容器镜像服务控制台](https://cr.console.aliyun.com/)（**先在左上角切到你服务器所在地域**）→ 左侧「实例列表」→ 首次进入会提示开通「个人版实例」，**地域必须选成和你 ECS 同一个**（例如都在 `cn-beijing`）。开通后得到形如 `crpi-xxxxxxxx.cn-beijing.personal.cr.aliyuncs.com` 的域名，这就是 `ACR_REGISTRY`。
 
 > 为什么强调同地域：`deploy.yml` 会读服务器元数据判断地域，同地域时自动把域名换成 `-vpc.` 版本，走内网拉取（免流量、秒级）；跨地域只能走公网，慢且计费。
 
 **② 创建命名空间（`ACR_NAMESPACE`）**
 
-个人版实例页 → 左侧「命名空间」→ 创建，例如 `myteam`。相当于镜像的目录分组。
+个人版实例详情页 → 左侧「仓库管理 > 命名空间」→ 创建，例如 `myteam`。相当于镜像的目录分组。
 
 **③ 创建镜像仓库**
 
@@ -172,14 +172,14 @@ ACR = 容器镜像服务，个人版免费。它的作用是当「中转站」�
 
 **④ 设置固定密码（`ACR_DOCKER_USERNAME` / `ACR_DOCKER_PASSWORD`）**
 
-个人版实例页 → 左侧「访问凭证」→ 选「固定密码」→ 设置密码。
+个人版实例详情页 → 左侧「仓库管理 > 访问凭证」→ 在「访问凭证」页点「设置固定密码」。
 
 - 用户名：**阿里云账号全名**（形如 `your_account@example.com`，或 RAM 子账号名），不是昵称
 - 密码：刚才设置的固定密码。**这是独立于阿里云登录密码的另一套凭证**，只对镜像仓库有效
 
 > 选项里的「临时密码」有效期只有 1 小时，CI 里绝不能用。
 
-官方文档：[获取访问凭证](https://help.aliyun.com/zh/acr/user-guide/obtain-the-access-credentials) ｜ [创建命名空间](https://help.aliyun.com/zh/acr/user-guide/create-a-namespace) ｜ [创建镜像仓库](https://help.aliyun.com/zh/acr/user-guide/create-an-image-repository)
+官方文档（个人版）：[创建个人版实例](https://help.aliyun.com/zh/acr/user-guide/create-a-container-registry-personal-edition-instance) ｜ [管理命名空间](https://help.aliyun.com/zh/acr/user-guide/manage-namespaces) ｜ [推送和拉取镜像（含「访问凭证 → 设置固定密码」截图步骤）](https://help.aliyun.com/zh/acr/user-guide/use-a-container-registry-personal-edition-instance-to-push-and-pull-images)
 
 ```bash
 gh secret set ACR_REGISTRY --body "crpi-xxxxxxxx.cn-beijing.personal.cr.aliyuncs.com"
@@ -190,7 +190,7 @@ gh secret set ACR_DOCKER_PASSWORD --body "你设置的固定密码"
 
 ### 第 3 步：放行端口（部署完访问不了，99% 是这里）
 
-[ECS 安全组控制台](https://ecs.console.aliyun.com/securityGroup/region/cn-beijing) → 点目标安全组 ID → 入方向 → 手动添加：
+[ECS 控制台](https://ecs.console.aliyun.com/)（左上角切地域）→ 左侧「网络与安全 > 安全组」→ 点目标安全组 ID → 入方向 → 手动添加：
 
 | 授权策略 | 协议类型 | 端口范围 | 授权对象 | 用途 |
 |---|---|---|---|---|
